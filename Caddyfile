@@ -1,0 +1,56 @@
+# SemanticSlider3D — single-origin reverse proxy.
+#
+# Serves the React production bundle at playground_ui/build, and routes API
+# traffic to the two backends:
+#   - /trellis/*  /socket.io/*               -> trellis_server.py (port 5002)
+#   - SAM3D whitelist (mirrors setupProxy.js) -> app.py            (port 5001)
+# Anything else falls back to index.html (SPA client-side routing).
+#
+# SETUP: replace every /path/to/SemanticSlider3D below with the absolute path to
+# your clone. Caddy does not expand ~ or resolve paths relative to this file.
+#
+# Run:    caddy start --config /path/to/SemanticSlider3D/Caddyfile
+# Stop:   caddy stop
+# Reload: caddy reload --config /path/to/SemanticSlider3D/Caddyfile
+{
+	admin localhost:2019
+	auto_https off
+}
+
+:8080 {
+	encode gzip
+
+	# Trellis REST + Socket.IO (websockets are auto-detected by reverse_proxy).
+	handle /trellis/* {
+		reverse_proxy localhost:5002
+	}
+	handle /socket.io/* {
+		reverse_proxy localhost:5002
+	}
+
+	# SAM3D whitelist — keep in sync with playground_ui/src/setupProxy.js.
+	@sam3d {
+		path /upload /uploads/* /downloads/* /segment /reset
+		path /finish_object /combine_objects /uncombine_object /delete_object
+		path /to_3d /start_session /resume_session /get_user_sessions/*
+		path /log_behavior /resolve_variant /serve_variant/* /save_object_states
+	}
+	handle @sam3d {
+		reverse_proxy localhost:5001
+	}
+
+	# Static React build with SPA fallback.
+	handle {
+		root * /path/to/SemanticSlider3D/playground_ui/build
+		try_files {path} /index.html
+		file_server
+	}
+
+	log {
+		output file /path/to/SemanticSlider3D/caddy.log {
+			roll_size 10mb
+			roll_keep 3
+		}
+		format console
+	}
+}

@@ -1,0 +1,1792 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Object Editor</title>
+    <!-- Import Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/TransformControls.js"></script>
+    
+    <style>
+        :root {
+            --primary: #3b82f6;
+            --success: #22c55e;
+            --danger: #ef4444;
+            --bg: #f8fafc;
+            --surface: #ffffff;
+            --text-main: #1e293b;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+            --sidebar-width: 280px;
+            --transform-panel-width: 240px;
+            --header-height: 60px;
+        }
+        
+        * { box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg);
+            color: var(--text-main);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* --- Header --- */
+        header {
+            height: var(--header-height);
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 20px;
+            flex-shrink: 0;
+            z-index: 200; /* Highest */
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        h1 {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin: 0;
+            color: var(--text-main);
+            white-space: nowrap;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        /* --- Buttons --- */
+        button, .file-upload-btn {
+            background-color: transparent;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 6px 12px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--text-main);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            text-decoration: none;
+            height: 32px;
+            white-space: nowrap;
+        }
+        button:hover, .file-upload-btn:hover {
+            background-color: #f1f5f9;
+            border-color: #cbd5e1;
+        }
+        
+        button.primary { background-color: var(--primary); color: white; border-color: var(--primary); }
+        button.primary:hover { background-color: #2563eb; }
+        
+        button.success { background-color: var(--success); color: white; border-color: var(--success); }
+        button.success:hover { background-color: #16a34a; }
+        
+        button.danger { background-color: var(--danger); color: white; border-color: var(--danger); }
+        button.danger:hover { background-color: #dc2626; }
+        
+        button.active { background-color: #e2e8f0; border-color: #94a3b8; }
+
+        input[type="file"] { display: none; }
+        
+        .divider {
+            width: 1px;
+            height: 20px;
+            background: var(--border);
+            margin: 0 5px;
+        }
+
+        /* Status Indicator */
+        .status-badge {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background-color: var(--border);
+            margin-left: 10px;
+            transition: all 0.3s;
+        }
+        .status-badge.processing {
+            background-color: var(--primary);
+            box-shadow: 0 0 8px var(--primary);
+            animation: pulse 0.8s infinite alternate;
+        }
+        @keyframes pulse {
+            from { opacity: 0.4; }
+            to { opacity: 1; }
+        }
+
+        /* --- Main Layout --- */
+        .main-container {
+            display: flex;
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+            background: #1e1e1e; /* Dark bg for 3D */
+        }
+        
+        /* --- 3D Viewer --- */
+        #viewer3d {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        /* --- Floating Image Panel --- */
+        .image-panel {
+            position: absolute;
+            left: 20px;
+            top: 20px;
+            background: white;
+            padding: 10px;
+            border-radius: 8px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+            z-index: 50;
+            max-width: 40vw; /* Limit width */
+            max-height: 80vh;
+            display: flex;
+            flex-direction: column;
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s;
+            border: 1px solid var(--border);
+        }
+        
+        .image-panel.hidden {
+            transform: translateX(-120%);
+            opacity: 0;
+            pointer-events: none;
+        }
+        
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            font-weight: 600;
+            cursor: move; /* Indicate draggable in future */
+        }
+        
+        #image-wrapper {
+            position: relative;
+            display: inline-block;
+            line-height: 0;
+            overflow: auto;
+            max-height: 70vh;
+            border-radius: 4px;
+            border: 1px solid #eee;
+        }
+
+        img#mainImage {
+            max-width: 100%;
+            display: block;
+            cursor: crosshair;
+        }
+        
+        .placeholder-container {
+            padding: 40px;
+            text-align: center;
+            color: var(--text-muted);
+        }
+
+        /* --- Sidebar (Right) --- */
+        .sidebar {
+            width: var(--sidebar-width);
+            background: var(--surface);
+            border-left: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: absolute;
+            right: 0;
+            top: 0;
+            bottom: 0;
+            z-index: 100;
+            box-shadow: -4px 0 15px rgba(0,0,0,0.1);
+        }
+        
+        .sidebar.collapsed {
+            transform: translateX(100%);
+            box-shadow: none;
+        }
+
+        .sidebar-header {
+            height: 50px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 15px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            color: var(--text-main);
+        }
+
+        .sidebar-controls {
+            padding: 10px 15px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            gap: 8px;
+            display: none; /* Hidden by default */
+        }
+
+        .sidebar-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 15px;
+        }
+
+        .gallery-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+        }
+
+        .gallery-item {
+            aspect-ratio: 1;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 5px;
+            background: #f8fafc;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+        }
+        .gallery-item:hover {
+            border-color: var(--primary);
+            background: white;
+        }
+        .gallery-item.selected {
+            border-color: var(--primary);
+            background: #eff6ff;
+            box-shadow: 0 0 0 2px var(--primary) inset;
+        }
+        .gallery-item.has-3d {
+            border-color: var(--success);
+            background: #f0fdf4;
+        }
+        .gallery-item img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+        
+        .gallery-item .indicator-3d {
+            position: absolute;
+            top: 4px;
+            right: 4px;
+            width: 8px;
+            height: 8px;
+            background-color: var(--success);
+            border-radius: 50%;
+            display: none;
+        }
+        .gallery-item.has-3d .indicator-3d {
+            display: block;
+        }
+
+        .sidebar-toggle {
+            position: absolute;
+            top: 50%;
+            left: -24px;
+            width: 24px;
+            height: 48px;
+            transform: translateY(-50%);
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-right: none;
+            border-radius: 6px 0 0 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            color: var(--text-muted);
+            box-shadow: -2px 0 4px rgba(0,0,0,0.05);
+            z-index: 101;
+        }
+
+        /* --- Transform Panel (Left) --- */
+        .transform-panel {
+            position: absolute;
+            left: 20px;
+            bottom: 20px;
+            width: var(--transform-panel-width);
+            background: var(--surface);
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            border: 1px solid var(--border);
+            padding: 15px;
+            z-index: 60;
+            display: none; /* Hidden by default until object selected */
+        }
+        
+        .transform-header {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            margin-bottom: 12px;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 8px;
+        }
+        
+        .transform-group {
+            margin-bottom: 12px;
+        }
+        
+        .transform-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-bottom: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .input-row {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .input-wrapper {
+            flex: 1;
+            position: relative;
+        }
+        
+        .input-wrapper input {
+            width: 100%;
+            padding: 4px 4px 4px 16px;
+            font-size: 0.8rem;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--text-main);
+        }
+        
+        .input-wrapper span {
+            position: absolute;
+            left: 4px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+        
+        .gizmo-controls {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 12px;
+        }
+        
+        .gizmo-btn {
+            flex: 1;
+            padding: 4px;
+            font-size: 0.75rem;
+            border: 1px solid var(--border);
+            background: #f8fafc;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .gizmo-btn.active {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+        }
+
+        /* --- Context Menu (Secondary Menu) --- */
+        .context-menu {
+            position: absolute;
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            padding: 4px;
+            z-index: 200;
+            display: none;
+            min-width: 120px;
+        }
+        
+        .context-menu-item {
+            padding: 8px 12px;
+            font-size: 0.85rem;
+            color: var(--text-main);
+            cursor: pointer;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .context-menu-item.disabled {
+            color: var(--text-muted);
+            opacity: 0.5;
+            cursor: not-allowed;
+            pointer-events: none;
+        }
+        
+        /* Markers */
+        .marker {
+            position: absolute;
+            width: 14px;
+            height: 14px;
+            margin-left: -7px;
+            margin-top: -7px;
+            pointer-events: none;
+            z-index: 10;
+        }
+        .marker::before, .marker::after {
+            content: '';
+            position: absolute;
+            background-color: currentColor;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.3);
+        }
+        .marker::before { top: 6px; left: 0; width: 100%; height: 2px; }
+        .marker::after { top: 0; left: 6px; width: 2px; height: 100%; }
+        .marker.positive { color: var(--success); }
+        .marker.negative { color: var(--danger); }
+
+        /* Login Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        
+        .modal-overlay.hidden {
+            display: none;
+        }
+        
+        .modal {
+            background: white;
+            padding: 32px;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 400px;
+            width: 90%;
+        }
+        
+        .modal h2 {
+            margin: 0 0 8px 0;
+            font-size: 1.5rem;
+            color: var(--text-main);
+        }
+        
+        .modal p {
+            margin: 0 0 20px 0;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+        
+        .modal input[type="text"] {
+            width: 100%;
+            padding: 12px 16px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 1rem;
+            margin-bottom: 16px;
+            box-sizing: border-box;
+        }
+        
+        .modal input[type="text"]:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+        }
+        
+        .modal-actions {
+            display: flex;
+            gap: 12px;
+        }
+        
+        .modal-actions button {
+            flex: 1;
+            padding: 12px;
+            font-size: 1rem;
+        }
+        
+        .session-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            padding: 4px 10px;
+            background: #f1f5f9;
+            border-radius: 6px;
+        }
+        
+        .session-info .user-id {
+            font-weight: 600;
+            color: var(--text-main);
+        }
+        
+        .session-item {
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--border);
+            cursor: pointer;
+            transition: background 0.2s;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .session-item:last-child {
+            border-bottom: none;
+        }
+        
+        .session-item:hover {
+            background: #f1f5f9;
+        }
+        
+        .session-item .session-date {
+            font-size: 0.9rem;
+            color: var(--text-main);
+        }
+        
+        .session-item .session-meta {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+    </style>
+</head>
+<body>
+
+    <!-- Login Modal -->
+    <div id="loginModal" class="modal-overlay">
+        <div class="modal">
+            <h2>Welcome</h2>
+            <p>Enter your user ID to continue. Your work is saved automatically.</p>
+            <input type="text" id="userIdInput" placeholder="Enter your user ID (e.g., john_doe)" autocomplete="off">
+            
+            <div id="existingSessionsContainer" style="display:none; margin: 16px 0;">
+                <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 8px;">Resume a previous session:</div>
+                <div id="existingSessionsList" style="max-height: 150px; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px;"></div>
+            </div>
+            
+            <div class="modal-actions">
+                <button id="checkSessionsBtn" onclick="checkExistingSessions()">Check Sessions</button>
+                <button class="primary" onclick="startNewSession()">New Session</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Header -->
+    <header>
+        <div class="header-left">
+            <h1>3D Object Editor</h1>
+            <div id="sessionInfo" class="session-info" style="display:none;">
+                <span>User:</span>
+                <span class="user-id" id="displayUserId"></span>
+            </div>
+            <div class="controls">
+                <div class="divider"></div>
+
+                <label class="file-upload-btn primary" for="fileInput">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:6px">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="17 8 12 3 7 8"/>
+                        <line x1="12" y1="3" x2="12" y2="15"/>
+                    </svg>
+                    Upload
+                </label>
+                <input type="file" id="fileInput" accept="image/*">
+                
+                <button id="toggleImageBtn" class="active" onclick="toggleImagePanel()" title="Show/Hide Image">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                        <circle cx="8.5" cy="8.5" r="1.5"/>
+                        <polyline points="21 15 16 10 5 21"/>
+                    </svg>
+                    Image
+                </button>
+                
+                <button onclick="undo()" title="Undo Last Point">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px">
+                        <path d="M3 7v6h6"/>
+                        <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/>
+                    </svg>
+                    Undo
+                </button>
+                <button onclick="reset()" title="Reset All Points">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px">
+                        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                        <path d="M3 3v5h5"/>
+                    </svg>
+                    Reset
+                </button>
+                
+                <div class="divider"></div>
+                
+                <button class="success" onclick="finishObject()">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px">
+                        <polyline points="20 6 9 17 4 12"/>
+                    </svg>
+                    Finish Object
+                </button>
+            </div>
+        </div>
+        
+        <div id="statusIndicator" class="status-badge" title="Processing Status"></div>
+    </header>
+
+    <!-- Main Layout -->
+    <div class="main-container">
+        
+        <!-- 3D Viewer (Background) -->
+        <div id="viewer3d"></div>
+        
+        <!-- Transform Panel -->
+        <div id="transformPanel" class="transform-panel">
+            <div class="transform-header">Transform Object</div>
+            
+            <div class="gizmo-controls">
+                <button class="gizmo-btn active" onclick="setGizmoMode('translate')">Move</button>
+                <button class="gizmo-btn" onclick="setGizmoMode('rotate')">Rotate</button>
+                <button class="gizmo-btn" onclick="setGizmoMode('scale')">Scale</button>
+            </div>
+            
+            <div class="transform-group">
+                <div class="transform-label">Position</div>
+                <div class="input-row">
+                    <div class="input-wrapper"><span>X</span><input type="number" id="posX" step="0.1"></div>
+                    <div class="input-wrapper"><span>Y</span><input type="number" id="posY" step="0.1"></div>
+                    <div class="input-wrapper"><span>Z</span><input type="number" id="posZ" step="0.1"></div>
+                </div>
+            </div>
+            
+            <div class="transform-group">
+                <div class="transform-label">Rotation (Deg)</div>
+                <div class="input-row">
+                    <div class="input-wrapper"><span>X</span><input type="number" id="rotX" step="1"></div>
+                    <div class="input-wrapper"><span>Y</span><input type="number" id="rotY" step="1"></div>
+                    <div class="input-wrapper"><span>Z</span><input type="number" id="rotZ" step="1"></div>
+                </div>
+            </div>
+            
+            <div class="transform-group">
+                <div class="transform-label">Scale</div>
+                <div class="input-row">
+                    <div class="input-wrapper"><span>X</span><input type="number" id="scaleX" step="0.1"></div>
+                    <div class="input-wrapper"><span>Y</span><input type="number" id="scaleY" step="0.1"></div>
+                    <div class="input-wrapper"><span>Z</span><input type="number" id="scaleZ" step="0.1"></div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Floating Image Panel -->
+        <div id="imagePanel" class="image-panel">
+            <div class="panel-header">
+                <span>Source Image</span>
+                <div style="cursor:pointer" onclick="toggleImagePanel()">✕</div>
+            </div>
+            
+            <div id="image-wrapper" style="display:none">
+                <img id="mainImage" src="" alt="Main Image">
+                <div id="markers-container"></div>
+            </div>
+            
+            <div id="placeholder" class="placeholder-container">
+                Upload an image to start segmentation
+            </div>
+        </div>
+
+        <!-- Floating Sidebar -->
+        <div class="sidebar" id="sidebar">
+            <div class="sidebar-toggle" onclick="toggleSidebar()">
+                <svg id="sidebarIcon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="9 18 15 12 9 6"/>
+                </svg>
+            </div>
+            
+            <div class="sidebar-header">
+                Segmented Objects
+                <button onclick="toggleSidebar()" style="border:none; padding:4px;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            
+            <div class="sidebar-controls" id="sidebarControls">
+                <button class="primary" onclick="combineSelectedObjects()" title="Combine Selected">
+                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path>
+                    </svg>
+                    Combine
+                </button>
+                <button class="primary" onclick="uncombineSelectedObject()" title="Uncombine Selected" id="uncombineBtn" style="display:none">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                       <path d="M4 14h6m2 0h8M4 10h6m2 0h8M10 3v18"/>
+                   </svg>
+                   Uncombine
+               </button>
+                <button class="danger" onclick="deleteSelectedObject()" title="Delete Selected">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="3 6 5 6 21 6"></polyline>
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                    </svg>
+                    Delete
+                </button>
+            </div>
+            
+            <div class="sidebar-content">
+                <div id="gallery" class="gallery-grid">
+                    <!-- Items go here -->
+                </div>
+            </div>
+        </div>
+
+    </div>
+    
+    <!-- Context Menu -->
+    <div id="contextMenu" class="context-menu">
+        <div id="to3DItem" class="context-menu-item" onclick="convertCurrentTo3D()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                <line x1="12" y1="22.08" x2="12" y2="12"></line>
+            </svg>
+            To 3D
+        </div>
+        <div id="toggleVisibilityItem" class="context-menu-item" onclick="toggleObjectVisibility()" style="display:none">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                <circle cx="12" cy="12" r="3"></circle>
+            </svg>
+            Toggle Visibility
+        </div>
+    </div>
+
+    <script>
+        // --- 3D Viewer Setup ---
+        let scene, camera, renderer, controls, transformControl;
+        // Data structure to link objects: { object_id: { model: THREE.Group, visible: boolean } }
+        let loadedObjects = {};
+        let selectedObject = null; // Currently selected THREE.Object3D
+        let nextPlacementX = 0; // Tracks where to place the next object to avoid overlap
+        let isGenerating3D = false;
+
+        function init3D() {
+            const container = document.getElementById('viewer3d');
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xf0f0f0); // Light background
+            
+            // Camera
+            camera = new THREE.PerspectiveCamera(75, container.clientWidth / container.clientHeight, 0.1, 1000);
+            camera.position.set(5, 5, 5);
+            camera.lookAt(0, 0, 0);
+            
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            renderer.outputEncoding = THREE.sRGBEncoding;
+            renderer.shadowMap.enabled = true;
+            container.appendChild(renderer.domElement);
+            
+            // Controls
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            
+            // Transform Controls
+            transformControl = new THREE.TransformControls(camera, renderer.domElement);
+            transformControl.addEventListener('dragging-changed', function(event) {
+                controls.enabled = !event.value;
+            });
+            transformControl.addEventListener('change', function() {
+                if (selectedObject) updateTransformInputs();
+            });
+            scene.add(transformControl);
+            
+            // Grid & Axes
+            const gridHelper = new THREE.GridHelper(20, 20, 0x888888, 0xcccccc);
+            // Let's stick to Three.js standard (Y up).
+            scene.add(gridHelper);
+            
+            const axesHelper = new THREE.AxesHelper(2);
+            scene.add(axesHelper);
+            
+            // Lights
+            const ambientLight = new THREE.AmbientLight(0xffffff, 1.5);
+            scene.add(ambientLight);
+            
+            const dirLight = new THREE.DirectionalLight(0xffffff, 2.5);
+            dirLight.position.set(5, 5, 10);
+            dirLight.castShadow = true;
+            scene.add(dirLight);
+
+            // Raycaster for selection
+            const raycaster = new THREE.Raycaster();
+            const mouse = new THREE.Vector2();
+            
+            container.addEventListener('click', (event) => {
+                // Ignore clicks if transforming
+                if (transformControl.dragging) return;
+                
+                const rect = container.getBoundingClientRect();
+                mouse.x = ((event.clientX - rect.left) / container.clientWidth) * 2 - 1;
+                mouse.y = -((event.clientY - rect.top) / container.clientHeight) * 2 + 1;
+                
+                raycaster.setFromCamera(mouse, camera);
+                // Filter only visible objects for intersection
+                const visibleModels = Object.values(loadedObjects)
+                    .filter(o => o.visible)
+                    .map(o => o.model);
+                    
+                const intersects = raycaster.intersectObjects(visibleModels, true);
+                
+                if (intersects.length > 0) {
+                    // Find the root group of the model
+                    let root = intersects[0].object;
+                    while(root.parent && root.parent !== scene) {
+                        root = root.parent;
+                    }
+                    selectObject(root);
+                } else {
+                    selectObject(null);
+                }
+            });
+
+            // Animation Loop
+            function animate() {
+                requestAnimationFrame(animate);
+                controls.update();
+                renderer.render(scene, camera);
+            }
+            animate();
+            
+            // Handle Resize
+            window.addEventListener('resize', () => {
+                camera.aspect = container.clientWidth / container.clientHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(container.clientWidth, container.clientHeight);
+            });
+            
+            setupTransformInputs();
+        }
+        
+        function selectObject(object) {
+            // Can only select visible objects
+            if (object && !object.visible) {
+                object = null;
+            }
+            
+            selectedObject = object;
+            if (object) {
+                transformControl.attach(object);
+                document.getElementById('transformPanel').style.display = 'block';
+                updateTransformInputs();
+            } else {
+                transformControl.detach();
+                document.getElementById('transformPanel').style.display = 'none';
+            }
+        }
+        
+        function updateTransformInputs() {
+            if (!selectedObject) return;
+            
+            const r = selectedObject.rotation;
+            const p = selectedObject.position;
+            const s = selectedObject.scale;
+            
+            document.getElementById('posX').value = p.x.toFixed(2);
+            document.getElementById('posY').value = p.y.toFixed(2);
+            document.getElementById('posZ').value = p.z.toFixed(2);
+            
+            document.getElementById('rotX').value = (r.x * 180 / Math.PI).toFixed(0);
+            document.getElementById('rotY').value = (r.y * 180 / Math.PI).toFixed(0);
+            document.getElementById('rotZ').value = (r.z * 180 / Math.PI).toFixed(0);
+            
+            document.getElementById('scaleX').value = s.x.toFixed(2);
+            document.getElementById('scaleY').value = s.y.toFixed(2);
+            document.getElementById('scaleZ').value = s.z.toFixed(2);
+        }
+        
+        function setupTransformInputs() {
+            const inputs = document.querySelectorAll('#transformPanel input');
+            inputs.forEach(input => {
+                input.addEventListener('change', applyTransformFromInput);
+                input.addEventListener('input', applyTransformFromInput); // Realtime
+            });
+        }
+        
+        function applyTransformFromInput() {
+            if (!selectedObject) return;
+            
+            const px = parseFloat(document.getElementById('posX').value) || 0;
+            const py = parseFloat(document.getElementById('posY').value) || 0;
+            const pz = parseFloat(document.getElementById('posZ').value) || 0;
+            
+            const rx = parseFloat(document.getElementById('rotX').value) || 0;
+            const ry = parseFloat(document.getElementById('rotY').value) || 0;
+            const rz = parseFloat(document.getElementById('rotZ').value) || 0;
+            
+            const sx = parseFloat(document.getElementById('scaleX').value) || 1;
+            const sy = parseFloat(document.getElementById('scaleY').value) || 1;
+            const sz = parseFloat(document.getElementById('scaleZ').value) || 1;
+            
+            selectedObject.position.set(px, py, pz);
+            selectedObject.rotation.set(rx * Math.PI/180, ry * Math.PI/180, rz * Math.PI/180);
+            selectedObject.scale.set(sx, sy, sz);
+        }
+        
+        function setGizmoMode(mode) {
+            transformControl.setMode(mode);
+            document.querySelectorAll('.gizmo-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+        }
+        
+        // Load GLB
+        function loadGLB(url, objectId) {
+            const loader = new THREE.GLTFLoader();
+            setLoading(true);
+            
+            loader.load(url, (gltf) => {
+                if (loadedObjects[objectId] && loadedObjects[objectId].model) {
+                    scene.remove(loadedObjects[objectId].model);
+                    if (selectedObject === loadedObjects[objectId].model) selectObject(null);
+                }
+                
+                const model = gltf.scene;
+                
+                // --- 1. Align Bottom to Y=0 ---
+                const wrapper = new THREE.Group();
+                wrapper.add(model);
+                
+                // Get bounds of the wrapper
+                const box = new THREE.Box3().setFromObject(wrapper);
+                const size = box.getSize(new THREE.Vector3());
+                const minY = box.min.y;
+                
+                // Move wrapper up so minY is at 0
+                // Adjust internal model position so that wrapper origin (0,0,0) corresponds to bottom-center of object
+                // This makes rotations/scaling easier
+                const center = box.getCenter(new THREE.Vector3());
+                model.position.x = -center.x;
+                model.position.z = -center.z;
+                model.position.y = -minY;
+                
+                // --- 2. Auto Placement (Smart Non-Overlapping) ---
+                // We use nextPlacementX to track the rightmost edge of the scene
+                const widthX = size.x;
+                const gap = 0.5; // Gap between objects
+                
+                // If it's the first object, start at 0
+                if (Object.keys(loadedObjects).length === 0) {
+                    nextPlacementX = 0;
+                }
+                
+                // Place object so its left edge starts at nextPlacementX + gap
+                // Since model is centered in wrapper, wrapper.position.x is the center
+                // So left edge is x - width/2
+                // We want: x - width/2 = nextPlacementX
+                // => x = nextPlacementX + width/2
+                
+                // However, let's keep it simple: Just accumulate X
+                // Place at current cursor
+                wrapper.position.x = nextPlacementX + (widthX / 2);
+                wrapper.position.z = 0; 
+                
+                // Update cursor for next object: current center + half width + gap
+                nextPlacementX = wrapper.position.x + (widthX / 2) + gap;
+                
+                scene.add(wrapper);
+                
+                // Store
+                loadedObjects[objectId] = {
+                    model: wrapper,
+                    visible: true
+                };
+                
+                // Select new object
+                selectObject(wrapper);
+                
+                // Update Gallery UI
+                const galleryItem = document.querySelector(`.gallery-item[data-index="${objectId}"]`);
+                if (galleryItem) galleryItem.classList.add('has-3d');
+                
+                setLoading(false);
+            }, undefined, (error) => {
+                console.error('An error happened', error);
+                setLoading(false);
+                alert("Failed to load 3D model");
+            });
+        }
+        
+        // Initialize 3D on load
+        window.addEventListener('load', init3D);
+
+
+        // --- App Logic ---
+        
+        let points = [];
+        let labels = [];
+        let isSidebarOpen = true;
+        let isImagePanelOpen = true;
+        let selectedObjectIdx = null; // For context menu
+        
+        // Multi-select state
+        let selectedGalleryItems = new Set();
+        
+        // Session management
+        let currentSessionId = null;
+        let currentUserId = null;
+        let currentImageFilename = null;  // Track the current source image filename
+        
+        async function checkExistingSessions() {
+            const userIdInput = document.getElementById('userIdInput');
+            const userId = userIdInput.value.trim();
+            
+            if (!userId) {
+                alert('Please enter a user ID first');
+                userIdInput.focus();
+                return;
+            }
+            
+            if (!/^[a-zA-Z0-9_-]+$/.test(userId)) {
+                alert('User ID can only contain letters, numbers, underscores, and dashes');
+                userIdInput.focus();
+                return;
+            }
+            
+            setLoading(true);
+            try {
+                const response = await fetch(`/get_user_sessions/${userId}`);
+                const data = await response.json();
+                
+                const container = document.getElementById('existingSessionsContainer');
+                const list = document.getElementById('existingSessionsList');
+                
+                if (data.sessions && data.sessions.length > 0) {
+                    list.innerHTML = '';
+                    data.sessions.forEach(session => {
+                        const div = document.createElement('div');
+                        div.className = 'session-item';
+                        div.onclick = () => resumeSession(userId, session.session_id);
+                        
+                        const dateStr = session.created_at ? new Date(session.created_at).toLocaleString() : session.session_id;
+                        const meta = `${session.object_count} objects${session.has_image ? ' • Has image' : ''}`;
+                        
+                        div.innerHTML = `
+                            <div>
+                                <div class="session-date">${dateStr}</div>
+                                <div class="session-meta">${meta}</div>
+                            </div>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="9 18 15 12 9 6"/>
+                            </svg>
+                        `;
+                        list.appendChild(div);
+                    });
+                    container.style.display = 'block';
+                } else {
+                    list.innerHTML = '<div style="padding: 12px; text-align: center; color: var(--text-muted);">No previous sessions found</div>';
+                    container.style.display = 'block';
+                }
+                
+                // Store user ID
+                localStorage.setItem('lastUserId', userId);
+                
+            } catch (e) {
+                console.error('Error fetching sessions:', e);
+                alert('Failed to check sessions');
+            } finally {
+                setLoading(false);
+            }
+        }
+        
+        let _isResuming = false;
+        async function resumeSession(userId, sessionId) {
+            if (_isResuming) return;
+            _isResuming = true;
+            setLoading(true);
+            try {
+                const response = await fetch('/resume_session', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id: userId, session_id: sessionId })
+                });
+                
+                const data = await response.json();
+                
+                if (data.error) {
+                    alert('Error: ' + data.error);
+                    return;
+                }
+                
+                currentSessionId = data.session_id;
+                currentUserId = data.user_id;
+                
+                // Hide modal and show session info
+                document.getElementById('loginModal').classList.add('hidden');
+                document.getElementById('sessionInfo').style.display = 'flex';
+                document.getElementById('displayUserId').textContent = currentUserId;
+                
+                // Restore image if available
+                if (data.image_filename) {
+                    mainImage.src = `/uploads/${currentSessionId}/${data.image_filename}`;
+                    currentImageFilename = data.image_filename;  // Track the current image filename
+                    mainImage.onload = () => {
+                        imageWrapper.style.display = 'block';
+                        placeholder.style.display = 'none';
+                    };
+                }
+                
+                // Restore gallery items
+                if (data.gallery_items && data.gallery_items.length > 0) {
+                    gallery.innerHTML = '';
+                    data.gallery_items.forEach(item => {
+                        addGalleryItem(item.object_index, item.object_image, item.is_combined, item.image_filename);
+                        // Load 3D model if available
+                        if (item.has_3d && item.glb_url) {
+                            loadGLB(item.glb_url, item.object_index);
+                        }
+                    });
+                    if (!isSidebarOpen) toggleSidebar();
+                }
+                
+                console.log(`Session resumed: ${currentSessionId} for user: ${currentUserId}`);
+                
+            } catch (e) {
+                console.error('Session resume error:', e);
+                alert('Failed to resume session');
+            } finally {
+                _isResuming = false;
+                setLoading(false);
+            }
+        }
+
+        async function startNewSession() {
+            const userIdInput = document.getElementById('userIdInput');
+            const userId = userIdInput.value.trim();
+            
+            if (!userId) {
+                alert('Please enter a user ID');
+                userIdInput.focus();
+                return;
+            }
+            
+            if (!/^[a-zA-Z0-9_-]+$/.test(userId)) {
+                alert('User ID can only contain letters, numbers, underscores, and dashes');
+                userIdInput.focus();
+                return;
+            }
+            
+            setLoading(true);
+            try {
+                const response = await fetch('/start_session', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id: userId })
+                });
+                
+                const data = await response.json();
+                
+                if (data.error) {
+                    alert('Error: ' + data.error);
+                    return;
+                }
+                
+                currentSessionId = data.session_id;
+                currentUserId = data.user_id;
+                
+                // Hide modal and show session info
+                document.getElementById('loginModal').classList.add('hidden');
+                document.getElementById('sessionInfo').style.display = 'flex';
+                document.getElementById('displayUserId').textContent = currentUserId;
+                
+                // Store in localStorage for persistence
+                localStorage.setItem('lastUserId', currentUserId);
+                
+                console.log(`New session started: ${currentSessionId} for user: ${currentUserId}`);
+                
+            } catch (e) {
+                console.error('Session start error:', e);
+                alert('Failed to start session');
+            } finally {
+                setLoading(false);
+            }
+        }
+        
+        // Check for saved user ID on load
+        window.addEventListener('DOMContentLoaded', () => {
+            const savedUserId = localStorage.getItem('lastUserId');
+            if (savedUserId) {
+                document.getElementById('userIdInput').value = savedUserId;
+            }
+            
+            // Handle Enter key in input
+            document.getElementById('userIdInput').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') checkExistingSessions();
+            });
+        });
+
+        // Elements
+        const fileInput = document.getElementById('fileInput');
+        const mainImage = document.getElementById('mainImage');
+        const imageWrapper = document.getElementById('image-wrapper');
+        const placeholder = document.getElementById('placeholder');
+        const markersContainer = document.getElementById('markers-container');
+        const statusIndicator = document.getElementById('statusIndicator');
+        const gallery = document.getElementById('gallery');
+        const sidebar = document.getElementById('sidebar');
+        const sidebarIcon = document.getElementById('sidebarIcon');
+        const imagePanel = document.getElementById('imagePanel');
+        const toggleImageBtn = document.getElementById('toggleImageBtn');
+        const contextMenu = document.getElementById('contextMenu');
+        const toggleVisibilityItem = document.getElementById('toggleVisibilityItem');
+        const sidebarControls = document.getElementById('sidebarControls');
+
+        function toggleSidebar() {
+            isSidebarOpen = !isSidebarOpen;
+            if (isSidebarOpen) {
+                sidebar.classList.remove('collapsed');
+                sidebarIcon.innerHTML = '<polyline points="9 18 15 12 9 6"/>';
+            } else {
+                sidebar.classList.add('collapsed');
+                sidebarIcon.innerHTML = '<polyline points="15 18 9 12 15 6"/>';
+            }
+        }
+        
+        function toggleImagePanel() {
+            isImagePanelOpen = !isImagePanelOpen;
+            if (isImagePanelOpen) {
+                imagePanel.classList.remove('hidden');
+                toggleImageBtn.classList.add('active');
+            } else {
+                imagePanel.classList.add('hidden');
+                toggleImageBtn.classList.remove('active');
+            }
+        }
+
+        function setLoading(isLoading) {
+            if (isLoading) {
+                statusIndicator.classList.add('processing');
+                document.body.style.cursor = 'wait';
+            } else {
+                statusIndicator.classList.remove('processing');
+                document.body.style.cursor = 'default';
+            }
+        }
+
+        async function uploadImage() {
+            if (!fileInput.files[0]) return;
+            
+            if (!currentSessionId) {
+                alert('Please start a session first');
+                document.getElementById('loginModal').classList.remove('hidden');
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            formData.append('session_id', currentSessionId);
+            
+            setLoading(true);
+            try {
+                const response = await fetch('/upload', { method: 'POST', body: formData });
+                const data = await response.json();
+                
+                if (data.error) {
+                    alert('Error: ' + data.error);
+                    return;
+                }
+                
+                if (data.filepath) {
+                    mainImage.src = `/uploads/${currentSessionId}/${data.filepath}`;
+                    currentImageFilename = data.filepath;  // Track the current image filename
+                    mainImage.onload = () => {
+                        imageWrapper.style.display = 'block';
+                        placeholder.style.display = 'none';
+                    };
+                    // Reset only the segmentation points, keep gallery and 3D objects
+                    resetLocalState();
+                    selectedGalleryItems.clear();
+                    updateSidebarControls();
+                    
+                    // DON'T clear gallery or 3D scene - keep objects from all images
+                    // gallery.innerHTML = '';
+                    // loadedObjects = {};
+                    
+                    if (!isImagePanelOpen) toggleImagePanel();
+                }
+            } catch (error) {
+                console.error('Error uploading:', error);
+                alert('Upload failed');
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        function resetLocalState() {
+            points = [];
+            labels = [];
+            markersContainer.innerHTML = '';
+        }
+
+        async function reset() {
+            resetLocalState();
+            setLoading(true);
+            try {
+                await fetch('/reset', { method: 'POST' });
+                if (mainImage.src && imageWrapper.style.display !== 'none') {
+                    updateSegmentation(); 
+                }
+            } catch (e) { console.error(e); } finally { setLoading(false); }
+        }
+
+        function undo() {
+            if (points.length > 0) {
+                points.pop();
+                labels.pop();
+                if (markersContainer.lastChild) markersContainer.removeChild(markersContainer.lastChild);
+                updateSegmentation();
+            }
+        }
+
+        async function updateSegmentation() {
+            if (!mainImage.src || imageWrapper.style.display === 'none') return;
+            setLoading(true);
+            try {
+                const response = await fetch('/segment', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        points: points, 
+                        labels: labels,
+                        session_id: currentSessionId
+                    })
+                });
+                const data = await response.json();
+                if (data.image) mainImage.src = `data:image/jpeg;base64,${data.image}`;
+            } catch (e) { console.error(e); } finally { setLoading(false); }
+        }
+
+        async function finishObject() {
+            if (points.length === 0) {
+                alert("Define an object first!");
+                return;
+            }
+            setLoading(true);
+            try {
+                const response = await fetch('/finish_object', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        points: points, 
+                        labels: labels,
+                        session_id: currentSessionId
+                    })
+                });
+                const data = await response.json();
+                
+                if (data.object_image) {
+                    const idx = data.object_index;
+                    // Use the tracked current image filename
+                    addGalleryItem(idx, data.object_image, data.is_combined || false, currentImageFilename);
+                    
+                    if (!isSidebarOpen) toggleSidebar();
+                    
+                    await reset(); 
+                }
+            } catch (e) { console.error(e); } finally { setLoading(false); }
+        }
+        
+        function addGalleryItem(idx, imageBase64, isCombined, imageFilename = null) {
+            const div = document.createElement('div');
+            div.className = 'gallery-item';
+            div.dataset.index = idx;
+            if (isCombined) div.dataset.isCombined = "true";
+            if (imageFilename) div.dataset.imageFilename = imageFilename;
+            div.onclick = (e) => handleGalleryItemClick(e, idx, div);
+            div.oncontextmenu = (e) => {
+                e.preventDefault();
+                // Select only this item for context menu ops
+                if (!selectedGalleryItems.has(idx)) {
+                    clearGallerySelection();
+                    selectedGalleryItems.add(idx);
+                    div.classList.add('selected');
+                    updateSidebarControls();
+                }
+                openContextMenu(e, idx);
+            };
+            
+            const indicator = document.createElement('div');
+            indicator.className = 'indicator-3d';
+            div.appendChild(indicator);
+            
+            const img = document.createElement('img');
+            img.src = `data:image/png;base64,${imageBase64}`;
+            div.appendChild(img);
+            
+            // Show source image name if provided (for multi-image sessions)
+            if (imageFilename) {
+                const sourceLabel = document.createElement('div');
+                sourceLabel.textContent = imageFilename.substring(0, 10) + (imageFilename.length > 10 ? '...' : '');
+                sourceLabel.style.cssText = 'position:absolute; bottom:2px; left:2px; font-size:8px; color:var(--text-muted); background:rgba(255,255,255,0.8); padding:1px 3px; border-radius:2px; max-width:90%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;';
+                sourceLabel.title = imageFilename;
+                div.appendChild(sourceLabel);
+            }
+            
+            // Visual indicator for combined object
+            if (isCombined) {
+                const combinedBadge = document.createElement('div');
+                combinedBadge.innerHTML = '⚄';
+                combinedBadge.style.position = 'absolute';
+                combinedBadge.style.bottom = '4px';
+                combinedBadge.style.right = '4px';
+                combinedBadge.style.fontSize = '12px';
+                combinedBadge.style.color = 'var(--text-muted)';
+                div.appendChild(combinedBadge);
+            }
+            
+            gallery.appendChild(div);
+        }
+
+        function handleGalleryItemClick(e, idx, element) {
+            // Check for multi-select modifier
+            if (e.ctrlKey || e.metaKey || e.shiftKey) {
+                if (selectedGalleryItems.has(idx)) {
+                    selectedGalleryItems.delete(idx);
+                    element.classList.remove('selected');
+                } else {
+                    selectedGalleryItems.add(idx);
+                    element.classList.add('selected');
+                }
+            } else {
+                // Regular click: clear others and select this one
+                clearGallerySelection();
+                selectedGalleryItems.add(idx);
+                element.classList.add('selected');
+            }
+            updateSidebarControls();
+        }
+        
+        function clearGallerySelection() {
+            selectedGalleryItems.clear();
+            document.querySelectorAll('.gallery-item.selected').forEach(el => el.classList.remove('selected'));
+        }
+        
+        function updateSidebarControls() {
+            if (selectedGalleryItems.size > 0) {
+                sidebarControls.style.display = 'flex';
+                
+                // Check if any selected item is combined
+                let hasCombined = false;
+                selectedGalleryItems.forEach(idx => {
+                    const el = document.querySelector(`.gallery-item[data-index="${idx}"]`);
+                    if (el && el.dataset.isCombined === "true") {
+                        hasCombined = true;
+                    }
+                });
+                
+                const uncombineBtn = document.getElementById('uncombineBtn');
+                if (hasCombined) {
+                    uncombineBtn.style.display = 'inline-flex';
+                } else {
+                    uncombineBtn.style.display = 'none';
+                }
+                
+            } else {
+                sidebarControls.style.display = 'none';
+            }
+        }
+        
+        async function combineSelectedObjects() {
+            if (selectedGalleryItems.size < 2) {
+                alert("Select at least 2 objects to combine");
+                return;
+            }
+            
+            const indices = Array.from(selectedGalleryItems);
+            setLoading(true);
+            
+            try {
+                const response = await fetch('/combine_objects', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ indices: indices, session_id: currentSessionId })
+                });
+                
+                const data = await response.json();
+                if (data.object_image) {
+                    // Remove old items from UI
+                    indices.forEach(idx => {
+                        const el = document.querySelector(`.gallery-item[data-index="${idx}"]`);
+                        if (el) el.remove();
+                        // Also remove associated 3D objects
+                        if (loadedObjects[idx]) {
+                             if (loadedObjects[idx].model) scene.remove(loadedObjects[idx].model);
+                             delete loadedObjects[idx];
+                        }
+                    });
+                    
+                    // Add new combined item with current image filename
+                    addGalleryItem(data.object_index, data.object_image, data.is_combined, currentImageFilename);
+                    
+                    clearGallerySelection();
+                    updateSidebarControls();
+                }
+            } catch (e) {
+                console.error(e);
+                alert("Combine failed");
+            } finally {
+                setLoading(false);
+            }
+        }
+        
+        async function uncombineSelectedObject() {
+            // Find all selected items that are combined
+            const indicesToUncombine = [];
+            selectedGalleryItems.forEach(idx => {
+                const el = document.querySelector(`.gallery-item[data-index="${idx}"]`);
+                if (el && el.dataset.isCombined === "true") {
+                    indicesToUncombine.push(idx);
+                }
+            });
+            
+            if (indicesToUncombine.length === 0) return;
+            
+            setLoading(true);
+            try {
+                // Process sequentially or just handle the first one? Let's do all.
+                for (const idx of indicesToUncombine) {
+                    const response = await fetch('/uncombine_object', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ object_index: idx, session_id: currentSessionId })
+                    });
+                    
+                    const data = await response.json();
+                    if (data.restored_objects) {
+                        // Remove combined item
+                        const el = document.querySelector(`.gallery-item[data-index="${idx}"]`);
+                        if (el) el.remove();
+                        if (loadedObjects[idx]) {
+                             if (loadedObjects[idx].model) scene.remove(loadedObjects[idx].model);
+                             delete loadedObjects[idx];
+                        }
+                        
+                        // Add restored items with their image filenames
+                        data.restored_objects.forEach(obj => {
+                            addGalleryItem(obj.object_index, obj.object_image, obj.is_combined, obj.image_filename);
+                        });
+                    }
+                }
+                
+                clearGallerySelection();
+                updateSidebarControls();
+                
+            } catch (e) {
+                console.error(e);
+                alert("Uncombine failed");
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        async function deleteSelectedObject() {
+            if (selectedGalleryItems.size === 0) return;
+            
+            if (!confirm("Delete selected object(s)?")) return;
+            
+            const indices = Array.from(selectedGalleryItems);
+            
+            // Optimistically remove from UI
+            indices.forEach(idx => {
+                const el = document.querySelector(`.gallery-item[data-index="${idx}"]`);
+                if (el) el.remove();
+                
+                if (loadedObjects[idx]) {
+                     if (loadedObjects[idx].model) scene.remove(loadedObjects[idx].model);
+                     delete loadedObjects[idx];
+                }
+                
+                // Notify backend (optional, but good for cleanup)
+                fetch('/delete_object', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ object_index: idx, session_id: currentSessionId })
+                });
+            });
+            
+            clearGallerySelection();
+            updateSidebarControls();
+            selectObject(null); // Clear 3D selection
+        }
+
+        // --- Context Menu Logic ---
+        function openContextMenu(e, idx) {
+            e.stopPropagation();
+            selectedObjectIdx = idx;
+            
+            const to3DItem = document.getElementById('to3DItem');
+            
+            if (loadedObjects[idx]) {
+                toggleVisibilityItem.style.display = 'flex';
+                // Hide "To 3D" if already loaded
+                to3DItem.style.display = 'none';
+                
+                const isVisible = loadedObjects[idx].visible;
+                toggleVisibilityItem.innerHTML = isVisible ? 
+                    `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:8px"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg> Hide 3D` :
+                    `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:8px"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg> Show 3D`;
+            } else {
+                toggleVisibilityItem.style.display = 'none';
+                to3DItem.style.display = 'flex';
+                
+                // Disable/Enable "To 3D" based on global generating state
+                if (isGenerating3D) {
+                    to3DItem.classList.add('disabled');
+                    to3DItem.title = "Another object is being generated...";
+                } else {
+                    to3DItem.classList.remove('disabled');
+                    to3DItem.title = "";
+                }
+            }
+            
+            contextMenu.style.display = 'block';
+            
+            const menuWidth = 150;
+            let left = e.clientX;
+            if (left + menuWidth > window.innerWidth) {
+                left = window.innerWidth - menuWidth - 10;
+            }
+            
+            contextMenu.style.left = `${left}px`;
+            contextMenu.style.top = `${e.clientY}px`;
+        }
+
+        async function convertCurrentTo3D() {
+            if (selectedObjectIdx === null) return;
+            if (isGenerating3D) return; // Guard
+            
+            contextMenu.style.display = 'none';
+            
+            if (loadedObjects[selectedObjectIdx]) {
+                selectObject(loadedObjects[selectedObjectIdx].model);
+                return;
+            }
+            
+            setLoading(true);
+            isGenerating3D = true;
+            
+            try {
+                const response = await fetch('/to_3d', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ object_index: selectedObjectIdx, session_id: currentSessionId })
+                });
+                
+                const data = await response.json();
+                if (data.glb_url) {
+                    loadGLB(data.glb_url, selectedObjectIdx);
+                    if (isImagePanelOpen) toggleImagePanel();
+                } else if (data.error) {
+                    alert("Error: " + data.error);
+                }
+            } catch (e) {
+                console.error("3D Error:", e);
+                alert("Failed to generate 3D model");
+            } finally {
+                setLoading(false);
+                isGenerating3D = false;
+            }
+        }
+        
+        function toggleObjectVisibility() {
+            if (selectedObjectIdx === null || !loadedObjects[selectedObjectIdx]) return;
+            
+            contextMenu.style.display = 'none';
+            const objData = loadedObjects[selectedObjectIdx];
+            objData.visible = !objData.visible;
+            objData.model.visible = objData.visible;
+            
+            const item = document.querySelector(`.gallery-item[data-index="${selectedObjectIdx}"]`);
+            if (item) {
+                // If the object is visible, we don't necessarily change opacity based on visibility
+                // But rather indicate 3D status. Let's keep opacity 1 for valid objects.
+                // Or maybe dim hidden objects?
+                // item.style.opacity = objData.visible ? '1' : '0.5';
+            }
+            
+            // Update context menu if open
+            // (Implicitly handled by next open)
+            
+            // NEW: Detach gizmo if hiding the currently selected object
+            if (!objData.visible && selectedObject === objData.model) {
+                selectObject(null);
+            }
+        }
+        
+        document.addEventListener('click', () => {
+            contextMenu.style.display = 'none';
+        });
+
+
+        // Event Listeners
+        fileInput.addEventListener('change', uploadImage);
+        
+        imageWrapper.addEventListener('contextmenu', e => e.preventDefault());
+        
+        mainImage.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            if (e.button === 0) handleInteraction(e, 1);
+            else if (e.button === 2) handleInteraction(e, 0);
+        });
+
+        function handleInteraction(e, label) {
+            const rect = mainImage.getBoundingClientRect();
+            const relX = e.clientX - rect.left;
+            const relY = e.clientY - rect.top;
+
+            const scaleX = mainImage.naturalWidth / rect.width;
+            const scaleY = mainImage.naturalHeight / rect.height;
+            const trueX = Math.round(relX * scaleX);
+            const trueY = Math.round(relY * scaleY);
+
+            points.push([trueX, trueY]);
+            labels.push(label);
+
+            addMarker(relX, relY, label);
+            updateSegmentation();
+        }
+
+        function addMarker(x, y, label) {
+            const marker = document.createElement('div');
+            marker.className = `marker ${label === 1 ? 'positive' : 'negative'}`;
+            marker.style.left = `${x}px`;
+            marker.style.top = `${y}px`;
+            markersContainer.appendChild(marker);
+        }
+    </script>
+</body>
+</html>

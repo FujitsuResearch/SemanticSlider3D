@@ -1,0 +1,225 @@
+# =============================================================================
+# SemanticSlider3D — repo hygiene
+#
+# Goal: ship exactly what someone needs to run `ml_servers/app.py` and
+# `ml_servers/trellis_server.py` (plus the playground_ui frontend), and nothing
+# that is secret, machine-specific, huge, or regenerable.
+#
+# Model weights are NOT in this repo by design:
+#   - TRELLIS pipeline  -> downloaded from HuggingFace ("microsoft/TRELLIS-text-large")
+#   - SAM3D checkpoints -> external dir, set via SS3D_SAM3D_CKPTS in ml_servers/.env
+#   - sam2_t.pt         -> auto-downloaded by ultralytics on first run
+# =============================================================================
+
+
+# -----------------------------------------------------------------------------
+# 1a. SECRETS — the only file in this tree that contains API keys
+# -----------------------------------------------------------------------------
+# The API-key .env holds three live credentials, loaded at import time by
+# ss3d_utils/_paths.py:load_ss3d_dotenv() for text_gen_utils, val_editing and
+# slider_mapping:
+#     OPENAI_API_KEY       (load-bearing: prompt generation + view filtering)
+#     GEMINI_API_KEY_OLD   (captioning paths in val_editing)
+#     ANTHROPIC_API_KEY    (helper utilities)
+# load_ss3d_dotenv() checks <repo>/.env first, then TRELLIS/.env (legacy
+# location, still used by existing deployments). Ignore both.
+# These keys already exist on disk and were present in the SS3D tarball —
+# ROTATE THEM. Ignoring the file here only prevents future commits.
+/.env
+/TRELLIS/.env
+
+# -----------------------------------------------------------------------------
+# 1b. MACHINE-LOCAL CONFIG — no secrets, but not portable
+# -----------------------------------------------------------------------------
+# ml_servers/.env is only SS3D_* paths and GPU ids (verified: no credentials).
+# It is ignored because the absolute paths are specific to one host, and
+# ml_servers/.env.example is the documented template. If you would rather ship
+# your working values as a reference, delete the next line.
+/ml_servers/.env
+
+# Safety net for any .env added later — assume the worst until reviewed.
+.env
+.env.*
+*.env
+
+# ...but the templates MUST travel with the repo.
+!.env.example
+!.env.template
+
+# Other common credential shapes
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+service_account*.json
+*_secret*
+*secrets.y*ml
+.netrc
+.npmrc
+.pypirc
+
+# Cloud / tool auth caches
+.aws/
+.gcloud/
+.huggingface/
+.cache/huggingface/
+
+
+# -----------------------------------------------------------------------------
+# 2. LARGE DIRECTORIES NOT NEEDED TO RUN THE SERVERS
+# -----------------------------------------------------------------------------
+
+# TRELLIS evaluation dataset + experiment outputs (~609 MB).
+# Referenced only from `if __name__ == "__main__"` demo blocks and commented-out
+# paths — nothing on the server import path reads it.
+/TRELLIS/validation/
+
+# Standalone Gradio app superseded by ml_servers/app.py (~264 MB).
+/sam-3d-objects/interactive_app/
+
+# Upstream demo assets and scratch output.
+/sam-3d-objects/notebook/images/
+/sam-3d-objects/notebook/meshes/
+/sam-3d-objects/notebook/gaussians/
+/sam-3d-objects/pipeline_output/
+/sam-3d-objects/runs/
+/sam-3d-objects/doc/
+/sam-3d-objects/missing_segmentations.txt
+
+# Upstream TRELLIS training path, unused by the playground.
+/TRELLIS/testing_scripts/
+/TRELLIS/train.py
+/TRELLIS/DATASET.md
+
+
+# -----------------------------------------------------------------------------
+# 3. REGENERABLE BUILD ARTIFACTS
+# -----------------------------------------------------------------------------
+# `npm install` from package-lock.json (~835 MB)
+node_modules/
+# `npm run build` — rebuild before serving the Caddy demo (~3.8 MB)
+/playground_ui/build/
+.eslintcache
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+
+# -----------------------------------------------------------------------------
+# 4. MODEL WEIGHTS AND 3D ASSETS
+# GitHub warns above 50 MB and hard-fails at 100 MB. Everything here is either
+# auto-downloaded or produced at runtime.
+# -----------------------------------------------------------------------------
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.bin
+*.onnx
+*.h5
+*.pkl
+*.npy
+*.npz
+
+# 3D assets and renders produced by the pipeline
+*.glb
+*.gltf
+*.ply
+*.obj
+*.fbx
+*.usdz
+*.blend
+*.blend1
+
+# SAM3D checkpoint drop point — keep the directory placeholder only
+/sam-3d-objects/checkpoints/*
+!/sam-3d-objects/checkpoints/.gitignore
+
+# Exception: Blender USDZ importer addon, loaded by
+# dataset_toolkits/blender_script/render.py during multiview rendering.
+!/TRELLIS/dataset_toolkits/blender_script/io_scene_usdz.zip
+
+
+# -----------------------------------------------------------------------------
+# 5. RUNTIME OUTPUT (per-session logs, uploads, renders)
+# -----------------------------------------------------------------------------
+# Default SS3D_DATA_DIR is <ml_servers>/logs; override it to a big disk.
+/ml_servers/logs/
+/ml_servers/uploads/
+/ml_servers/outputs/
+/ml_servers/downloads/
+/ml_servers/semantic_results/
+/caddy.log
+*.log
+*.out
+*.err
+
+# Video / audio, in case a render or a recording lands in the tree
+*.mp4
+*.mov
+*.m4a
+*.wav
+*.mp3
+*.avi
+*.mkv
+
+
+# -----------------------------------------------------------------------------
+# 6. PYTHON
+# -----------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+eggs/
+.eggs/
+sdist/
+wheels/
+*.egg-info/
+*.egg
+.installed.cfg
+MANIFEST
+
+# Virtualenvs / conda prefixes checked into the tree
+venv/
+.venv/
+env/
+ENV/
+.conda/
+
+# Test + type-checker caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+
+# -----------------------------------------------------------------------------
+# 7. EDITOR / OS CRUFT
+# -----------------------------------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.claude/

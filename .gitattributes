@@ -1,0 +1,9 @@
+# GitHub Linguist: keep language statistics representative of SemanticSlider3D's
+# own code. The paths below are vendored third-party subtrees, not work of this
+# project -- see MODIFICATIONS.md for provenance and the changes made to them.
+#
+# Scoped deliberately: TRELLIS/ as a whole is NOT marked, because it also holds
+# this project's own slider pipelines and sampler.
+
+TRELLIS/trellis/representations/mesh/flexicubes/** linguist-vendored
+sam-3d-objects/**                                  linguist-vendored
